@@ -36,6 +36,24 @@ start_queue_process(Node, Q) ->
     QPid.
 
 init([]) ->
+  rabbit_db_queue:register_callback_for_queue_deletion(
+    fun(Path, Value) ->
+      QueueName = case lists:nth(5, Path) of
+                    {if_all, L} -> lists:nth(1, L);
+                    Q1 -> Q1
+                  end,
+      Vhost = lists:nth(3, Path),
+      rabbit_log:debug("Rabbit queue ~ts of vhost ~ts deleted", [binary_to_list(QueueName), binary_to_list(Vhost)]),
+      Q = case Value of
+            {ok, M} -> maps:get(data, M);
+            {error, _} -> {}
+          end,
+      QPid = amqqueue:get_pid(Q),
+      rabbit_log:info("Queue PID is ~tp", [QPid]),
+      delegate:invoke(QPid, {gen_server2, call,
+        [{delete, false, false, <<"dummy">>},
+          infinity]})
+    end),
     SupFlags = #{strategy => simple_one_for_one,
                  intensity => 10,
                  period => 10},

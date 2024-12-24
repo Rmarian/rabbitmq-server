@@ -30,7 +30,8 @@
          delete/2,
          update/2,
          update_decorators/2,
-         exists/1
+         exists/1,
+         register_callback_for_queue_deletion/1
         ]).
 
 %% Once mnesia is removed, all transient entities will be deleted. These can be replaced
@@ -1400,3 +1401,6 @@ khepri_queue_path(VHost, Name)
   when ?IS_KHEPRI_PATH_CONDITION(VHost) andalso
        ?IS_KHEPRI_PATH_CONDITION(Name) ->
     ?RABBITMQ_KHEPRI_QUEUE_PATH(VHost, Name).
+
+register_callback_for_queue_deletion(Fun) ->
+  khepri:register_callback(delete, Fun).
