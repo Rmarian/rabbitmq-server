@@ -36,24 +36,20 @@ start_queue_process(Node, Q) ->
     QPid.
 
 init([]) ->
-  rabbit_db_queue:register_callback_for_queue_deletion(
-    fun(Path, Value) ->
-      QueueName = case lists:nth(5, Path) of
-                    {if_all, L} -> lists:nth(1, L);
-                    Q1 -> Q1
-                  end,
-      Vhost = lists:nth(3, Path),
-      rabbit_log:debug("Rabbit queue ~ts of vhost ~ts deleted", [binary_to_list(QueueName), binary_to_list(Vhost)]),
-      Q = case Value of
-            {ok, M} -> maps:get(data, M);
-            {error, _} -> {}
-          end,
-      QPid = amqqueue:get_pid(Q),
-      rabbit_log:info("Queue PID is ~tp", [QPid]),
-      delegate:invoke(QPid, {gen_server2, call,
-        [{delete, false, false, <<"dummy">>},
-          infinity]})
-    end),
+    rabbit_db_queue:register_callback_for_queue_deletion(
+      fun(QueueName, QueueData) ->
+        % invoke the callback defensively to not crash the Khepri process
+        try
+          rabbit_log:info("Queue ~ts was deleted by metadata store. Stoping queue process and cleanup resources if any", [QueueName]),
+          QPid = amqqueue:get_pid(QueueData),
+          case rabbit_process:is_process_alive(QPid) of
+            true -> delegate:invoke(QPid, {gen_server2, call, [{delete, false, false, <<"dummy">>}, infinity]});
+            false -> ok
+          end
+        catch _:Reason->
+          rabbit_log:warning("Could not cleanup queue resources due to ~tp",[Reason])
+        end
+      end),
     SupFlags = #{strategy => simple_one_for_one,
                  intensity => 10,
                  period => 10},
