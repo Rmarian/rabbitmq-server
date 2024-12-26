@@ -1402,7 +1402,6 @@ khepri_queue_path(VHost, Name)
        ?IS_KHEPRI_PATH_CONDITION(Name) ->
     ?RABBITMQ_KHEPRI_QUEUE_PATH(VHost, Name).
 
-% Works only if the khepri feature flag is enabled.
 register_callback_for_queue_deletion(Fun) ->
   F = fun(Path, Value) ->
     case lists:nth(4, Path) of
@@ -1413,13 +1412,16 @@ register_callback_for_queue_deletion(Fun) ->
                        end,
         QueueName = binary_to_list(QueueNameBin),
         case Value of
-          {ok, M} -> Fun(QueueName, maps:get(data, M));
+          {ok, M} ->
+            case maps:to_list(M) of
+              [_|_] ->
+                {_, Map} = lists:nth(1, maps:to_list(M)),
+                Fun(QueueName, maps:get(data, Map));
+              [] -> ok
+            end;
           {error, _} -> rabbit_log:warning("Received delete event for queue ~ts but metadata could ot be retrieved", [QueueName])
         end;
       _ -> rabbit_log:info("Received delete event for non queue element. Ignore...")
     end
       end,
-  rabbit_khepri:handle_fallback(
-    #{mnesia => fun() -> ok end,
-      khepri => fun() -> khepri:register_callback(delete, F) end
-    }).
+  khepri:register_callback(#khepri_event{type = delete, callback = F}).
