@@ -1528,6 +1528,13 @@ handle_cast({delete_exclusive, ConnPid}, State) ->
 handle_cast(delete_immediately, State) ->
     stop(State);
 
+handle_cast(check_state, State = #q{q = Q0}) ->
+  % stop queue process if queue no longer in DB
+  Name = amqqueue:get_name(Q0),
+  case rabbit_amqqueue:lookup(Name) of
+    {not_found, _} -> stop(State)
+  end;
+
 handle_cast({resume, ChPid}, State) ->
     noreply(possibly_unblock(rabbit_queue_consumers:resume_fun(),
                              ChPid, State));

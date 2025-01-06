@@ -36,20 +36,6 @@ start_queue_process(Node, Q) ->
     QPid.
 
 init([]) ->
-    rabbit_db_queue:register_callback_for_queue_deletion(
-      fun(QueueName, QueueData) ->
-        % invoke the callback defensively to not crash the Khepri process
-        try
-          rabbit_log:info("Queue ~ts was deleted by metadata store. Stoping queue process and cleanup resources if any", [QueueName]),
-          QPid = amqqueue:get_pid(QueueData),
-          case rabbit_process:is_process_alive(QPid) of
-            true -> delegate:invoke(QPid, {gen_server2, call, [{delete, false, false, <<"dummy">>}, infinity]});
-            false -> ok
-          end
-        catch _:Reason->
-          rabbit_log:warning("Could not cleanup queue resources due to ~tp",[Reason])
-        end
-      end),
     SupFlags = #{strategy => simple_one_for_one,
                  intensity => 10,
                  period => 10},

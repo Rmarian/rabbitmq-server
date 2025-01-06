@@ -31,8 +31,7 @@
          update/2,
          update_decorators/2,
          exists/1,
-         register_callback_for_queue_deletion/1
-        ]).
+         register_callback_for_queue_deletion/2]).
 
 %% Once mnesia is removed, all transient entities will be deleted. These can be replaced
 %% with the plain get_all* functions
@@ -1402,26 +1401,21 @@ khepri_queue_path(VHost, Name)
        ?IS_KHEPRI_PATH_CONDITION(Name) ->
     ?RABBITMQ_KHEPRI_QUEUE_PATH(VHost, Name).
 
-register_callback_for_queue_deletion(Fun) ->
-  F = fun(Path, Value) ->
-    case lists:nth(4, Path) of
-      queues ->
-        QueueNameBin = case lists:nth(5, Path) of
-                         {if_all, L} -> lists:nth(1, L);
-                         Q1 -> Q1
-                       end,
-        QueueName = binary_to_list(QueueNameBin),
-        case Value of
-          {ok, M} ->
-            case maps:to_list(M) of
-              [_|_] ->
-                {_, Map} = lists:nth(1, maps:to_list(M)),
-                Fun(QueueName, maps:get(data, Map));
-              [] -> ok
+register_callback_for_queue_deletion(VHost, Fun) ->
+  F = fun({EventType, Path, Value}) ->
+        case lists:nth(4, Path) of
+          queues ->
+            QueueNameBin = case lists:nth(5, Path) of
+                             {if_all, L} -> lists:nth(1, L);
+                             Q1 -> Q1
+                           end,
+            QueueName = binary_to_list(QueueNameBin),
+            QueueData = maps:get(data, Value),
+            case amqqueue:get_vhost(QueueData) of
+              VHost -> Fun({EventType, QueueName, QueueData});
+              _ -> rabbit_log:info("Received queue deletion for another vhost than ~tp", [VHost])
             end;
-          {error, _} -> rabbit_log:warning("Received delete event for queue ~ts but metadata could ot be retrieved", [QueueName])
-        end;
-      _ -> rabbit_log:info("Received delete event for non queue element. Ignore...")
-    end
+          _ -> rabbit_log:info("Received delete event for non queue element. Ignore...")
+        end
       end,
   khepri:register_callback(#khepri_event{type = delete, callback = F}).

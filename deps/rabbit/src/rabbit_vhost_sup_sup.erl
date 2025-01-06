@@ -122,7 +122,7 @@ stop_and_delete_vhost(VHost, Node) ->
 -spec init_vhost(rabbit_types:vhost()) -> ok | {error, {no_such_vhost, rabbit_types:vhost()}}.
 init_vhost(VHost) ->
     case start_vhost(VHost) of
-        {ok, _} -> ok;
+        {ok, _} -> subscribe_for_events(VHost), ok;
         {error, {already_started, _}} ->
             rabbit_log:warning(
                 "Attempting to start an already started vhost '~ts'.",
@@ -147,6 +147,41 @@ init_vhost(VHost) ->
                     ok
             end
     end.
+
+subscribe_for_events(VHost) ->
+  rabbit_db_queue:register_callback_for_queue_deletion(VHost,
+    fun({EventType, QueueName, QueueData}) ->
+      case EventType of
+        reset -> notify_all_queues(VHost);
+        delete ->
+          % invoke the callback defensively
+          try
+            rabbit_log:info("Queue ~ts was deleted by metadata store. Stoping queue process and cleanup resources if any", [QueueName]),
+            QPid = amqqueue:get_pid(QueueData),
+            case rabbit_process:is_process_alive(QPid) of
+              true -> delegate:invoke(QPid, {gen_server2, call, [{delete, false, false, <<"dummy">>}, infinity]});
+              false -> ok
+            end
+          catch _:Reason->
+            rabbit_log:warning("Could not cleanup queue resources due to ~tp",[Reason])
+          end
+      end
+    end).
+
+notify_all_queues(VHost) ->
+  % notify all vhost live queue processes about a Khepri snapshot install event
+  VHostSup = rabbit_vhost_sup_sup:get_vhost_sup(VHost),
+
+  % get all queue supervisors
+  Children = [Pid || {_, Pid, _, _} <- supervisor:which_children(VHostSup)],
+
+  % cast check_state to all queue processes
+  lists:foreach(Children,
+    fun(Pid) ->
+      % find queue process PID
+      QueueProcs = [Pid || {_, Pid, _, _} <- supervisor:which_children(Pid)],
+      lists:foreach(QueueProcs, fun(QPid) -> elegate:invoke(QPid, {gen_server2, call, [{check_state, false, false, <<"dummy">>}, infinity]}) end)
+    end).
 
 -type vhost_error() :: {no_such_vhost, rabbit_types:vhost()} |
                        {vhost_supervisor_not_running, rabbit_types:vhost()}.
