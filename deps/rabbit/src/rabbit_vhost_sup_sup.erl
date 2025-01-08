@@ -170,18 +170,19 @@ subscribe_for_events(VHost) ->
 
 notify_all_queues(VHost) ->
   % notify all vhost live queue processes about a Khepri snapshot install event
-  VHostSup = rabbit_vhost_sup_sup:get_vhost_sup(VHost),
+  {ok, VHostSup} = rabbit_amqqueue_sup_sup:find_for_vhost(VHost),
 
   % get all queue supervisors
   Children = [Pid || {_, Pid, _, _} <- supervisor:which_children(VHostSup)],
 
   % cast check_state to all queue processes
-  lists:foreach(Children,
+  lists:foreach(
     fun(Pid) ->
       % find queue process PID
       QueueProcs = [Pid || {_, Pid, _, _} <- supervisor:which_children(Pid)],
-      lists:foreach(QueueProcs, fun(QPid) -> elegate:invoke(QPid, {gen_server2, call, [{check_state, false, false, <<"dummy">>}, infinity]}) end)
-    end).
+      rabbit_log:info("Notifying queue proc ~tp of vhost ~tp", [QueueProcs, VHost]),
+      lists:foreach(fun(QPid) -> delegate:invoke_no_result(QPid, {gen_server2, cast, [check_state]}) end, QueueProcs)
+    end, Children).
 
 -type vhost_error() :: {no_such_vhost, rabbit_types:vhost()} |
                        {vhost_supervisor_not_running, rabbit_types:vhost()}.

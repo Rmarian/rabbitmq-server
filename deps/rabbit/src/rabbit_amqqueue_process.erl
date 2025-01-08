@@ -1531,8 +1531,10 @@ handle_cast(delete_immediately, State) ->
 handle_cast(check_state, State = #q{q = Q0}) ->
   % stop queue process if queue no longer in DB
   Name = amqqueue:get_name(Q0),
+  rabbit_log:info("[~tp][~tp]Received check state request", [Name, self()]),
   case rabbit_amqqueue:lookup(Name) of
-    {not_found, _} -> stop(State)
+    {not_found, _} -> stop(State);
+    {ok, _} -> {noreply, ok}
   end;
 
 handle_cast({resume, ChPid}, State) ->

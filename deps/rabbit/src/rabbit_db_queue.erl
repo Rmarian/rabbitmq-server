@@ -1403,19 +1403,23 @@ khepri_queue_path(VHost, Name)
 
 register_callback_for_queue_deletion(VHost, Fun) ->
   F = fun({EventType, Path, Value}) ->
-        case lists:nth(4, Path) of
-          queues ->
-            QueueNameBin = case lists:nth(5, Path) of
-                             {if_all, L} -> lists:nth(1, L);
-                             Q1 -> Q1
-                           end,
-            QueueName = binary_to_list(QueueNameBin),
-            QueueData = maps:get(data, Value),
-            case amqqueue:get_vhost(QueueData) of
-              VHost -> Fun({EventType, QueueName, QueueData});
-              _ -> rabbit_log:info("Received queue deletion for another vhost than ~tp", [VHost])
+        case EventType of
+          delete ->
+            case lists:nth(4, Path) of
+              queues ->
+                QueueNameBin = case lists:nth(5, Path) of
+                                 {if_all, L} -> lists:nth(1, L);
+                                 Q1 -> Q1
+                               end,
+                QueueName = binary_to_list(QueueNameBin),
+                QueueData = maps:get(data, Value),
+                case amqqueue:get_vhost(QueueData) of
+                  VHost -> Fun({EventType, QueueName, QueueData});
+                  _ -> rabbit_log:info("Received queue deletion for another vhost than ~tp", [VHost])
+                end;
+              _ -> rabbit_log:info("Received delete event for non queue element. Ignore...")
             end;
-          _ -> rabbit_log:info("Received delete event for non queue element. Ignore...")
+          reset -> Fun({reset, none, none})
         end
       end,
   khepri:register_callback(#khepri_event{type = delete, callback = F}).
